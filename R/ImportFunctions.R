@@ -1,5 +1,5 @@
 pacman::p_load(tidyverse, wrappedtools,
-               readxl, rlist, Hmisc, dataxray, janitor)
+               readxl, rlist, dataxray, janitor)
 # conflict_scout()
 # conflicts_prefer(dplyr::filter)
 
@@ -107,26 +107,50 @@ import_excelsheets <- function(file, sheets=NULL, skip_empty_cols=FALSE){
 #                                        sheets = c(1,2,5))
 
 # create summary for all sheet
-sheet_summary <- function(data=certain_datalist){
+sheet_summary <- function(data=certain_datalist,
+                          exclude=c('Nr',
+                                    'PatientStudyID',
+                                    'Code',
+                                    'MonthAndYearOfBirth')){
   description_list <- list()
   for(sheet_i in names(data)){
     sheet_data <- data |> pluck(sheet_i)
+    exc_vars <- wrappedtools::FindVars(exclude, 
+                                       allnames = colnames(sheet_data))
+    if(exc_vars$count>0)  {
+      sheet_data <- select(sheet_data,-all_of(exc_vars$names))
+    }
     desc_categories <-
-      dplyr::summarize(sheet_data,
-                       across(where(function(x) {is.character(x) | is.factor(x)}),
-                              list(
-                                `n valid`=~length(na.omit(.x)) |> as.character(),
-                                `n missing`=~sum(is.na(.x)) |> as.character(),
-                                Level=~cat_desc_stats(.x, singleline = T) |>
-                                  pluck('level'),
-                                Frequency=~cat_desc_stats(.x, singleline = T) |>
-                                  pluck('freq') |> as.character()),
-                              .names = "{.col}::{.fn}")) |>
+      compare2qualvars(
+        sheet_data |> 
+          mutate(dummy=sample(x=c('a','b'),
+                              size = nrow(sheet_data),
+                              replace=T)),
+        sheet_data |> dplyr::select(where(function(x) {
+          is.character(x) | is.factor(x)})) |> cn(),
+        'dummy') |> 
+      select(1:2)
+    
+    desc_nas <- dplyr::summarize(sheet_data,
+                     across(where(function(x) {is.character(x) | is.factor(x)}),
+                            list(
+                              `n valid`=~length(na.omit(.x)) |> as.character(),
+                              `n missing`=~sum(is.na(.x)) |> as.character()),
+                            # Level=~cat_desc_stats(.x,
+                            #                       singleline = TRUE,
+                            #                       separator = '\n') |>
+                            #   pluck('level'),
+                            # Frequency=~cat_desc_stats(.x,
+                            #                           singleline = TRUE,
+                            #                           separator = '\n') |>
+                            #   pluck('freq') |> as.character()),
+                            .names = "{.col}::{.fn}")) |>
       pivot_longer(everything(),
                    names_to = c('Variable','Info'),
                    names_sep = '::') |>
       pivot_wider(names_from = Info, values_from = value)
 
+    desc_categories <- left_join(desc_categories,desc_nas)    
     desc_numbers <-
       dplyr::summarize(sheet_data,
                        across(where(is.numeric),
@@ -146,14 +170,17 @@ sheet_summary <- function(data=certain_datalist){
                               list(
                                 `n valid`=~length(na.omit(.x)) |> as.character(),
                                 `n missing`=~sum(is.na(.x)) |> as.character(),
-                                Median_Quart_Min_Max=~median_quart(.x, range = T,roundDig = 3)),
+                                Min_Max=~paste(
+                                  suppressWarnings(min(.x,na.rm = TRUE)),
+                                  suppressWarnings(max(.x,na.rm = TRUE)),
+                                               sep = ' -> ')),
                               .names = "{.col}::{.fn}")) |>
       pivot_longer(everything(),
                    names_to = c('Variable','Info'),
                    names_sep = '::') |>
       pivot_wider(names_from = Info, values_from = value)
 
-    description <- list(categories=desc_categories,
+    description <- list(Categories=desc_categories,
                         Numbers=desc_numbers,
                         Dates=desc_dates)
     # description <- Hmisc::describe(sheet_data,
