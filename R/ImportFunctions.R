@@ -43,24 +43,37 @@ change2date <- function(data){
 #' \code{detect_numeric} internal function
 #' 
 #' @param column A vector (typically a column from an imported sheet)
+#' @param min_unique Minimal number of unique entries to qualify as measurement; default 6
 #' 
 #' @return  A vector of type numeric if suitable, original structure otherwise
 #' 
 #' @export
 
-detect_numeric <- function(column){
-  if(is.character(column)){
-    column_as_number <- suppressWarnings(
-      column |> 
-        str_replace(',','.') |> parse_number() |> as.numeric())
-    if(suppressWarnings(column |> 
-       str_replace(',','.') |> as.numeric() |> 
-       na.omit() |> length())==length(na.omit(column_as_number)) &
-       length(na.omit(column_as_number))>0) {
-      column <- column_as_number
+detect_numeric <- function(column, min_unique=6){
+  column_as_number <- column
+  if(is.character(column_as_number) &
+     !any(str_detect(na.omit(column_as_number),'[:alpha:]'))){
+    if(any(str_detect(na.omit(column_as_number),',')) |
+       any(str_detect(na.omit(column_as_number),'\\..+\\.'))){
+      column_as_number <- 
+        str_replace_all(column_as_number,
+                        c('\\.'='',
+                          ','='.'))
     }
+    
+      column_as_number <- suppressWarnings(
+        as.numeric(column_as_number)
+    )
   }
-  return(column)
+        # column_as_number <- suppressWarnings(
+    #   column |> 
+    #     str_replace(',','.') |> parse_number() |> as.numeric())
+    # if(suppressWarnings(column |> 
+    #                     str_replace(',','.') |> as.numeric() |> 
+    #                     na.omit() |> length())==length(na.omit(column_as_number)) &
+    #    length(na.omit(column_as_number))>min_unique) {
+      # column <- column_as_number
+  return(column_as_number)
 }
 
 #' Detection and casting for numeric columns
@@ -68,13 +81,14 @@ detect_numeric <- function(column){
 #' \code{change2numeric} internal function 
 #' 
 #' @param data The tibble to convert
+#' @param min_unique parameter for underlying internal function \code{detect_numeric}
 #' 
 #' @return  A mutated tibble
 #' 
 #' @export
 
-change2numeric <- function(data){
-  data <- modify(data,detect_numeric)
+change2numeric <- function(data, min_unique=6){
+  data <- modify(data,~detect_numeric(.x, min_unique=min_unique))
   return(data)
 }
 
@@ -182,13 +196,16 @@ show_excelsheets <- function(file) {
 #' 
 #' @param skip_codecols Logical, if TRUE (default), columns with numeric level for categories are removed
 #' 
+#' @param min_unique parameter for underlying internal function \code{detect_numeric}
+#' 
 #' @return  A named list with tibbles for imported sheets
 #' 
 #' @export
 import_excelsheets <- function(file, 
                                sheets=NULL, 
                                skip_empty_cols=FALSE,
-                               skip_codecols=TRUE){
+                               skip_codecols=TRUE,
+                               min_unique=6){
   if(is.null(sheets)) {
     sheets <- show_excelsheets(file)
   }
@@ -240,70 +257,74 @@ sheet_summary <- function(data,
   for(sheet_i in names(data)){
     sheet_data <- data |> pluck(sheet_i)
     exc_vars <- FindVars(exclude, 
-                                       allnames = colnames(sheet_data))
+                         allnames = colnames(sheet_data))
     if(exc_vars$count>0)  {
       sheet_data <- select(sheet_data,-all_of(exc_vars$names))
     }
     if(ncol(select(sheet_data, where(function(x) {
       is.character(x) | is.factor(x)})))>0){
       desc_categories <-
-      cat_desc_table(sheet_data,
-                     sheet_data |> dplyr::select(where(function(x) {
-                       is.character(x) | is.factor(x)})) |> cn(),
-                     indentor='  - ')
-    
-    desc_nas <- 
-      dplyr::summarize(sheet_data,
-                       across(where(function(x) {is.character(x) | is.factor(x)}),
-                              list(
-                                `n valid`=~length(na.omit(.x)) |> as.character(),
-                                `n missing`=~sum(is.na(.x)) |> as.character()),
-                              # Level=~cat_desc_stats(.x,
-                              #                       singleline = TRUE,
-                              #                       separator = '\n') |>
-                              #   pluck('level'),
-                              # Frequency=~cat_desc_stats(.x,
-                              #                           singleline = TRUE,
-                              #                           separator = '\n') |>
-                              #   pluck('freq') |> as.character()),
-                              .names = "{.col}::{.fn}")) |>
-      pivot_longer(everything(),
-                   names_to = c('Variable','Info'),
-                   names_sep = '::') |>
-      pivot_wider(names_from = Info, values_from = value)
-    
-    desc_categories <- left_join(desc_categories,desc_nas)    
+        cat_desc_table(sheet_data,
+                       sheet_data |> dplyr::select(where(function(x) {
+                         is.character(x) | is.factor(x)})) |> cn(),
+                       indentor='  - ') |> 
+        rename(Descriptives=desc_all)
+      
+      desc_nas <- 
+        dplyr::summarize(sheet_data,
+                         across(where(function(x) {is.character(x) | is.factor(x)}),
+                                list(
+                                  `n valid`=~length(na.omit(.x)) |> as.character(),
+                                  `n missing`=~sum(is.na(.x)) |> as.character()),
+                                # Level=~cat_desc_stats(.x,
+                                #                       singleline = TRUE,
+                                #                       separator = '\n') |>
+                                #   pluck('level'),
+                                # Frequency=~cat_desc_stats(.x,
+                                #                           singleline = TRUE,
+                                #                           separator = '\n') |>
+                                #   pluck('freq') |> as.character()),
+                                .names = "{.col}::{.fn}")) |>
+        pivot_longer(everything(),
+                     names_to = c('Variable','Info'),
+                     names_sep = '::') |>
+        pivot_wider(names_from = Info, values_from = value)
+      
+      desc_categories <- left_join(desc_categories,desc_nas)    
     } else {
       desc_categories <- tibble(Variable='no text variables')
     }
     if(ncol(select(sheet_data, where(is.numeric)))>0){
       desc_numbers <-
-      dplyr::summarize(sheet_data,
-                       across(where(is.numeric),
-                              list(
-                                `n valid`=~length(na.omit(.x)) |> as.character(),
-                                `n missing`=~sum(is.na(.x)) |> as.character(),
-                                Median_Quart_Min_Max=~median_quart(.x, range = T,roundDig = 3)),
-                              .names = "{.col}::{.fn}")) |>
-      pivot_longer(everything(),
-                   names_to = c('Variable','Info'),
-                   names_sep = '::') |>
-      pivot_wider(names_from = Info, values_from = value)
+        dplyr::summarize(
+          sheet_data,
+          across(where(is.numeric),
+                 list(
+                   Median_Quart_Min_Max=~median_quart(.x, range = T,roundDig = 3),
+                   `n valid`=~length(na.omit(.x)) |> as.character(),
+                   `n missing`=~sum(is.na(.x)) |> as.character()
+                 ),
+                 .names = "{.col}::{.fn}")) |>
+        pivot_longer(everything(),
+                     names_to = c('Variable','Info'),
+                     names_sep = '::') |>
+        pivot_wider(names_from = Info, values_from = value)
     } else {
       desc_numbers <- tibble(Variable='no numeric variables')
     }    
-    if(ncol(select(sheet_data, where(is.numeric)))>0){
+    if(ncol(select(sheet_data, where(is.Date)))>0){
       desc_dates <-
-        dplyr::summarize(sheet_data,
-                         across(where(is.Date),
-                                list(
-                                  `n valid`=~length(na.omit(.x)) |> as.character(),
-                                  `n missing`=~sum(is.na(.x)) |> as.character(),
-                                  Min_Max=~paste(
-                                    suppressWarnings(min(.x,na.rm = TRUE)),
-                                    suppressWarnings(max(.x,na.rm = TRUE)),
-                                    sep = ' -> ')),
-                                .names = "{.col}::{.fn}")) |>
+        dplyr::summarize(
+          sheet_data,
+          across(where(is.Date),
+                 list(
+                   Min_Max=~paste(
+                     suppressWarnings(min(.x,na.rm = TRUE)),
+                     suppressWarnings(max(.x,na.rm = TRUE)),
+                     sep = ' -> '),
+                   `n valid`=~length(na.omit(.x)) |> as.character(),
+                   `n missing`=~sum(is.na(.x)) |> as.character()),
+                 .names = "{.col}::{.fn}")) |>
         pivot_longer(everything(),
                      names_to = c('Variable','Info'),
                      names_sep = '::') |>

@@ -5,10 +5,12 @@
 \title{Detection of numeric variables
 Tests if all entries can be casted to numeric}
 \usage{
-detect_numeric(column)
+detect_numeric(column, min_unique = 6)
 }
 \arguments{
 \item{column}{A vector (typically a column from an imported sheet)}
+
+\item{min_unique}{Minimal number of unique entries to qualify as measurement; default 6}
 }
 \value{
 A vector of type numeric if suitable, original structure otherwise

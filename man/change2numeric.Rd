@@ -4,10 +4,12 @@
 \alias{change2numeric}
 \title{Detection and casting for numeric columns}
 \usage{
-change2numeric(data)
+change2numeric(data, min_unique = 6)
 }
 \arguments{
 \item{data}{The tibble to convert}
+
+\item{min_unique}{parameter for underlying internal function \code{detect_numeric}}
 }
 \value{
 A mutated tibble

@@ -8,7 +8,8 @@ import_excelsheets(
   file,
   sheets = NULL,
   skip_empty_cols = FALSE,
-  skip_codecols = TRUE
+  skip_codecols = TRUE,
+  min_unique = 6
 )
 }
 \arguments{
@@ -20,6 +21,8 @@ ignored if NULL (the default)}
 \item{skip_empty_cols}{Logical, if FALSE (default), empty columns are retained}
 
 \item{skip_codecols}{Logical, if TRUE (default), columns with numeric level for categories are removed}
+
+\item{min_unique}{parameter for underlying internal function \code{detect_numeric}}
 }
 \value{
 A named list with tibbles for imported sheets
